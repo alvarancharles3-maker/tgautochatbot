@@ -88,6 +88,24 @@ const activeTimers = [];
 async function startBot() {
   console.log("\n⏳ Connecting to Telegram...");
 
+  // In headless environments (Railway), do not attempt interactive login
+  if (isHeadless) {
+    if (!sessionString) {
+      console.error("❌ SESSION_STRING is missing in environment. Cannot run headless.");
+      process.exit(1);
+    }
+    try {
+      await client.connect();
+      const me = await client.getMe();
+      console.log("✓ Connected to Telegram (headless)!");
+      console.log(`✓ Account: ${me.firstName}`);
+      return;
+    } catch (error) {
+      console.error("✗ Headless connection error:", error.message);
+      process.exit(1);
+    }
+  }
+
   try {
     await client.connect();
     
