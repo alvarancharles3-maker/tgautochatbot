@@ -26,9 +26,9 @@ if (!fs.existsSync(sessionDir)) {
   fs.mkdirSync(sessionDir, { recursive: true });
 }
 
-// Read or create session
-let sessionString = "";
-if (fs.existsSync(sessionFile)) {
+// Read or create session (prefer env for deployments like Railway)
+let sessionString = process.env.SESSION_STRING || "";
+if (!sessionString && fs.existsSync(sessionFile)) {
   sessionString = fs.readFileSync(sessionFile, "utf-8");
 }
 
@@ -65,6 +65,10 @@ const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
+
+// Detect non-interactive/headless environments (e.g. Railway)
+const isHeadless =
+  !!process.env.RAILWAY_ENVIRONMENT || process.env.HEADLESS === "1";
 
 // Helper function to prompt user
 const question = (prompt) => {
@@ -423,44 +427,51 @@ async function main() {
     
     console.log("\n✓ Bot is ready! You can now send commands via Telegram:");
     console.log("  - Type /help in Telegram to see commands");
-    console.log("  - Or use the terminal menu below\n");
+    console.log("  - Or use the terminal menu below (local mode)\n");
 
-    let running = true;
-    while (running) {
-      await showMenu();
-      const choice = await question("\nChoose option (1-3): ");
+    // In headless environments (like Railway), skip interactive menu
+    if (!isHeadless) {
+      let running = true;
+      while (running) {
+        await showMenu();
+        const choice = await question("\nChoose option (1-3): ");
 
-      switch (choice.trim()) {
-        case "1":
-          await autoMessageGroups();
-          break;
+        switch (choice.trim()) {
+          case "1":
+            await autoMessageGroups();
+            break;
 
-        case "2":
-          const group = await question("Enter group ID/@username: ");
-          const message = await question("Enter message to send: ");
-          if (group.trim() && message.trim()) {
-            await sendSingleMessage(group.trim(), message.trim());
-          } else {
-            console.log("✗ Invalid input");
-          }
-          break;
+          case "2":
+            const group = await question("Enter group ID/@username: ");
+            const message = await question("Enter message to send: ");
+            if (group.trim() && message.trim()) {
+              await sendSingleMessage(group.trim(), message.trim());
+            } else {
+              console.log("✗ Invalid input");
+            }
+            break;
 
-        case "3":
-          console.log("\n👋 Disconnecting...");
-          running = false;
-          break;
+          case "3":
+            console.log("\n👋 Disconnecting...");
+            running = false;
+            break;
 
-        default:
-          console.log("✗ Invalid choice!");
+          default:
+            console.log("✗ Invalid choice!");
+        }
       }
-    }
 
-    await client.disconnect();
+      await client.disconnect();
+    } else {
+      console.log("Running in headless mode (no terminal menu).");
+    }
   } catch (error) {
     console.error(`\n✗ Error: ${error.message}`);
   } finally {
-    rl.close();
-    process.exit(0);
+    if (!isHeadless) {
+      rl.close();
+      process.exit(0);
+    }
   }
 }
 
