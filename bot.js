@@ -85,6 +85,115 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Store active auto-send timers
 const activeTimers = [];
 
+// Per-user autosend wizard state
+const autosendStates = new Map(); // key: senderId string -> { step, groups, intervalText, done }
+
+// Parse interval text like "30s", "5m", "4h" (default h)
+const parseIntervalText = (intervalText) => {
+  const trimmed = (intervalText || "").trim();
+  const match = trimmed.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
+  if (!match) return null;
+
+  const value = parseFloat(match[1]);
+  const unit = (match[2] || "h").toLowerCase();
+  if (!value || value <= 0) return null;
+
+  let intervalMs;
+  if (unit === "s") {
+    intervalMs = value * 1000;
+  } else if (unit === "m") {
+    intervalMs = value * 60 * 1000;
+  } else {
+    intervalMs = value * 60 * 60 * 1000;
+  }
+
+  return {
+    value,
+    unit,
+    intervalMs,
+    label: `${value}${unit}`,
+  };
+};
+
+// Helper to create and register an auto-send timer
+const createAutoSendTimer = (groups, intervalInfo, message) => {
+  const safeGroups = groups.map((g) => g.trim()).filter((g) => g);
+  const { intervalMs, label } = intervalInfo;
+
+  const timer = setInterval(async () => {
+    console.log(`\n⏰ Auto-send tick: ${safeGroups.length} groups every ${label}`);
+    for (let i = 0; i < safeGroups.length; i++) {
+      const group = safeGroups[i];
+      console.log(`[auto ${i + 1}/${safeGroups.length}] ${group}`);
+      await sendMessageToGroup(group, message);
+      if (i < safeGroups.length - 1) await sleep(config.messageDelay);
+    }
+  }, intervalMs);
+
+  activeTimers.push(timer);
+  return timer;
+};
+
+// Process step-by-step /autosend wizard input
+const processAutosendWizardInput = async (senderKey, state, text, msg) => {
+  const trimmedText = (text || "").trim();
+
+  if (state.step === "groups") {
+    const groups = trimmedText.split(" ").map((g) => g.trim()).filter((g) => g);
+    if (!groups.length) {
+      await msg.respond({ message: "❌ Please send at least one group username or ID (separated by spaces)." });
+      return;
+    }
+    state.groups = groups;
+    state.step = "interval";
+    await msg.respond({
+      message: `✅ Groups set: ${groups.join(", ")}\n\nStep 2: Send interval (e.g. 30s, 5m, 4h).`,
+    });
+    return;
+  }
+
+  if (state.step === "interval") {
+    const intervalInfo = parseIntervalText(trimmedText);
+    if (!intervalInfo) {
+      await msg.respond({
+        message: "❌ Invalid interval. Use formats like 30s, 5m, 4h (number + unit).",
+      });
+      return;
+    }
+    state.intervalText = trimmedText;
+    state.intervalInfo = intervalInfo;
+    state.step = "message";
+    await msg.respond({
+      message: `✅ Interval set to every ${intervalInfo.label}.\n\nStep 3: Send the message text to auto-send.`,
+    });
+    return;
+  }
+
+  if (state.step === "message") {
+    if (!trimmedText) {
+      await msg.respond({ message: "❌ Message cannot be empty. Please send the message text." });
+      return;
+    }
+
+    const groups = state.groups || [];
+    const intervalInfo = state.intervalInfo || parseIntervalText(state.intervalText || "1h");
+    if (!groups.length || !intervalInfo) {
+      await msg.respond({
+        message: "❌ Something went wrong with the wizard. Please send /autosend to start again.",
+      });
+      state.done = true;
+      return;
+    }
+
+    createAutoSendTimer(groups, intervalInfo, trimmedText);
+
+    await msg.respond({
+      message: `✓ Auto-send started to ${groups.length} groups every ${intervalInfo.label}.`,
+    });
+    state.done = true;
+  }
+};
+
 async function startBot() {
   console.log("\n⏳ Connecting to Telegram...");
 
@@ -235,8 +344,6 @@ async function setupMessageHandler() {
       const msg = event.message;
       const text = msg.text || msg.message || "";
       
-      if (!text.startsWith("/")) return; // Only listen to commands
-      
       const parts = text.split(" ");
       const command = parts[0].toLowerCase();
       
@@ -244,6 +351,19 @@ async function setupMessageHandler() {
       
       // Get the sender's entity for reply
       const senderId = msg.senderId || msg.fromId;
+      const senderKey = senderId?.toString?.() || String(senderId);
+
+      // If user is in the middle of an /autosend wizard and this is not a command, treat as wizard input
+      const existingAutosendState = autosendStates.get(senderKey);
+      if (existingAutosendState && !text.startsWith("/")) {
+        await processAutosendWizardInput(senderKey, existingAutosendState, text, msg);
+        if (existingAutosendState.done) {
+          autosendStates.delete(senderKey);
+        }
+        return;
+      }
+
+      if (!text.startsWith("/")) return; // Only listen to commands when not in a wizard
       
       // /send @group message text here
       if (command === "/send" && parts.length >= 3) {
@@ -295,6 +415,18 @@ async function setupMessageHandler() {
       else if (command === "/autosend") {
         const fullText = msg.text || msg.message || "";
         const partsPipe = fullText.split("|");
+
+        // If user just sends "/autosend" (no pipes), start the step-by-step wizard
+        if (partsPipe.length === 1) {
+          const state = { step: "groups" };
+          autosendStates.set(senderKey, state);
+          await msg.respond({
+            message:
+              "Step 1: Send the list of group usernames/IDs separated by spaces.\n\nExample:\n@group1 @group2 -1001234567890",
+          });
+          return;
+        }
+
         if (partsPipe.length < 3) {
           try {
             await msg.respond({ message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
@@ -309,26 +441,8 @@ async function setupMessageHandler() {
         const groups = cmdPart.replace("/autosend", "").trim().split(" ").filter(g => g);
         const intervalText = intervalPart.trim();
 
-        const match = intervalText.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
-        if (!match) {
-          try {
-            await msg.respond({ message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h (default h if unit omitted)" });
-          } catch (e) {}
-          return;
-        }
-        const value = parseFloat(match[1]);
-        const unit = (match[2] || "h").toLowerCase();
-
-        let intervalMs;
-        if (unit === "s") {
-          intervalMs = value * 1000;
-        } else if (unit === "m") {
-          intervalMs = value * 60 * 1000;
-        } else {
-          intervalMs = value * 60 * 60 * 1000;
-        }
-
-        if (!groups.length || !value || value <= 0 || !messagePart.trim()) {
+        const intervalInfo = parseIntervalText(intervalText);
+        if (!intervalInfo || !groups.length || !messagePart.trim()) {
           try {
             await msg.respond({ message: "❌ Invalid format. Use: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
           } catch (e) {}
@@ -337,22 +451,10 @@ async function setupMessageHandler() {
 
         const trimmedMessage = messagePart.trim();
 
-        const timer = setInterval(async () => {
-          console.log(`\n⏰ Auto-send tick: ${groups.length} groups every ${intervalText}`);
-          for (let i = 0; i < groups.length; i++) {
-            const group = groups[i].trim();
-            if (!group) continue;
-            
-            console.log(`[auto ${i + 1}/${groups.length}] ${group}`);
-            await sendMessageToGroup(group, trimmedMessage);
-            if (i < groups.length - 1) await sleep(config.messageDelay);
-          }
-        }, intervalMs);
-
-        activeTimers.push(timer);
+        createAutoSendTimer(groups, intervalInfo, trimmedMessage);
 
         try {
-          await msg.respond({ message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
+          await msg.respond({ message: `✓ Auto-send started to ${groups.length} groups every ${intervalInfo.label}.` });
         } catch (e) {
           console.log("✓ Auto-send started (couldn't send confirmation message)");
         }
