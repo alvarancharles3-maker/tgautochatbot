@@ -238,10 +238,10 @@ async function setupMessageHandler() {
       const msg = event.message;
       const text = msg.text || msg.message || "";
       
-      if (!text.startsWith("/")) return; // Only listen to commands
-      
+      // allow commands with or without leading slash
       const parts = text.split(" ");
-      const command = parts[0].toLowerCase();
+      const command = parts[0].toLowerCase().replace(/^\//, "");
+      if (!command) return; // ignore empty
       
       console.log(`\n📨 Command received: ${text}`);
       
@@ -252,7 +252,7 @@ async function setupMessageHandler() {
       if (!allowedUserIds.includes(senderId)) {
         console.log(`⛔ Unauthorized command from user ${senderId}`);
         // send a help-style message with buttons so they can see available commands
-        const helpText = `🤖 **Bot Commands:**
+        const helpText = `🤖 **Bot Commands (slash optional):**
 
 /send @group message
 Send message to one group
@@ -278,10 +278,10 @@ Stop all auto-send timers`;
           await client.sendMessage(senderId, {
             message: helpText,
             buttons: [
-              [{ text: "/send" }, { text: "/sendmulti" }],
-              [{ text: "/autosend" }, { text: "/has" }],
-              [{ text: "/help" }, { text: "/stats" }],
-              [{ text: "/stoptimers" }]
+              [{ text: "send" }, { text: "sendmulti" }],
+              [{ text: "autosend" }, { text: "has" }],
+              [{ text: "help" }, { text: "stats" }],
+              [{ text: "stoptimers" }]
             ],
           });
         } catch (e) {
@@ -293,8 +293,8 @@ Stop all auto-send timers`;
         return;
       }
       
-      // /send @group message text here
-      if (command === "/send" && parts.length >= 3) {
+      // /send @group message text here (slash optional)
+      if (command === "send" && parts.length >= 3) {
         const group = parts[1];
         const customMsg = parts.slice(2).join(" ");
         await sendMessageToGroup(group, customMsg);
@@ -307,7 +307,7 @@ Stop all auto-send timers`;
       }
       
       // /sendmulti group1 group2 group3|Message here
-      else if (command === "/sendmulti") {
+      else if (command === "sendmulti") {
         const fullText = msg.text || msg.message || "";
         const [cmdPart, contentPart] = fullText.split("|");
         
@@ -340,7 +340,7 @@ Stop all auto-send timers`;
       }
 
       // /autosend group1 group2|interval|Message here (interval supports s/m/h)
-      else if (command === "/autosend") {
+      else if (command === "autosend") {
         const fullText = msg.text || msg.message || "";
         const partsPipe = fullText.split("|");
         if (partsPipe.length < 3) {
@@ -407,8 +407,8 @@ Stop all auto-send timers`;
       }
       
       // /help
-      else if (command === "/help") {
-        const helpText = `🤖 **Bot Commands:**
+      else if (command === "help") {
+        const helpText = `🤖 **Bot Commands (slash optional):**
 
 /send @group message
 Send message to one group
@@ -439,7 +439,7 @@ Stop all auto-send timers`;
       }
       
       // /stats
-      else if (command === "/stats") {
+      else if (command === "stats") {
         try {
           const me = await client.getMe();
           const statsText = `📊 **Account Info:**
@@ -454,7 +454,7 @@ Status: Online ✓`;
       }
 
       // /stoptimers
-      else if (command === "/stoptimers") {
+      else if (command === "stoptimers") {
         try {
           activeTimers.forEach(clearInterval);
           activeTimers.length = 0;
@@ -466,7 +466,7 @@ Status: Online ✓`;
       }
 
       // /has - List all groups/channels the account has joined
-      else if (command === "/has") {
+      else if (command === "has") {
         try {
           console.log("\n📋 Fetching all groups and channels...");
           await msg.respond({ message: "⏳ Fetching groups..." });
