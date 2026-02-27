@@ -251,9 +251,45 @@ async function setupMessageHandler() {
       // Check if user is authorized
       if (!allowedUserIds.includes(senderId)) {
         console.log(`⛔ Unauthorized command from user ${senderId}`);
+        // send a help-style message with buttons so they can see available commands
+        const helpText = `🤖 **Bot Commands:**
+
+/send @group message
+Send message to one group
+
+/sendmulti group1 group2 group3|Your message
+Send to multiple groups
+
+/autosend group1 group2|interval|Your message
+Auto-send to multiple groups every X (supports s, m, h; e.g. 30s, 5m, 4h)
+
+/has
+List all groups and channels you're in
+
+/help
+Show this help
+
+/stats
+Show your account info
+
+/stoptimers
+Stop all auto-send timers`;
         try {
-          await msg.respond({ message: "Hello! Want to plug a service? Available now. DM @lithuazs to avail." });
-        } catch (e) {}
+          await client.sendMessage(senderId, {
+            message: helpText,
+            buttons: [
+              [{ text: "/send" }, { text: "/sendmulti" }],
+              [{ text: "/autosend" }, { text: "/has" }],
+              [{ text: "/help" }, { text: "/stats" }],
+              [{ text: "/stoptimers" }]
+            ],
+          });
+        } catch (e) {
+          // fallback plain message
+          try {
+            await msg.respond({ message: helpText });
+          } catch (err) {}
+        }
         return;
       }
       
