@@ -85,6 +85,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Store active auto-send timers
 const activeTimers = [];
 
+// Allowed user IDs for bot commands
+const allowedUserIds = [7968867231, 1016048363];
+
 async function startBot() {
   console.log("\n⏳ Connecting to Telegram...");
 
@@ -244,6 +247,15 @@ async function setupMessageHandler() {
       
       // Get the sender's entity for reply
       const senderId = msg.senderId || msg.fromId;
+      
+      // Check if user is authorized
+      if (!allowedUserIds.includes(senderId)) {
+        console.log(`⛔ Unauthorized command from user ${senderId}`);
+        try {
+          await msg.respond({ message: "Hello! Want to plug a service? Available now. DM @lithuazs to avail." });
+        } catch (e) {}
+        return;
+      }
       
       // /send @group message text here
       if (command === "/send" && parts.length >= 3) {
