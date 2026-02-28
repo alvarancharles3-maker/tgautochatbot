@@ -54,61 +54,25 @@ const client = new TelegramClient(
     connectionRetries: 5,
   }
 );
+  // Function to save session
+  const saveSession = () => {
+    const sessionStr = client.session.save();
+    fs.writeFileSync(sessionFile, sessionStr);
+  };
 
-     if (!text) return; // Ignore empty messages
-  const sessionStr = client.session.save();
-     // Get the sender's entity for reply (do this EARLY)
-     const senderId = msg.senderId || msg.fromId;
-     
-     // Convert senderId to number for comparison (handles BigInt and string cases)
-     const userIdNum = Number(senderId);
-     
-     // If unauthorized user - show help for ANY message
-     if (!allowedUserIds.includes(userIdNum)) {
-       console.log(`\n📨 Message from unauthorized user ${userIdNum}: ${text}`);
-       try {
-         await msg.respond({
-           message: `🤖 Available Commands:`,
-           replyMarkup: new Api.ReplyInlineMarkup({
-             rows: [
-               [
-                 new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" }),
-                 new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" })
-               ],
-               [
-                 new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" }),
-                 new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" })
-               ],
-               [
-                 new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
-                 new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
-               ],
-               [
-                 new Api.InlineKeyboardButton({ text: "/stoptimers", switchInlineQuery: "/stoptimers" })
-               ]
-             ]
-           })
-         });
-       } catch (e) {
-         console.log("Could not send inline buttons:", e.message);
-       }
-       return;
-     }
-     
-     // For authorized users - only process messages that start with /
-     if (!text.startsWith("/")) return;
-  fs.writeFileSync(sessionFile, sessionStr);
-};
-
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
-
-      resolve(answer);
-    });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
   });
-};
+
+  // Helper function to prompt user
+  const question = (prompt) => {
+    return new Promise((resolve) => {
+      rl.question(prompt, (answer) => {
+        resolve(answer);
+      });
+    });
+  };
 
 // Helper function to sleep
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
