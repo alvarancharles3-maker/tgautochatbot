@@ -258,30 +258,32 @@ async function setupMessageHandler() {
       if (!allowedUserIds.includes(userIdNum)) {
         console.log(`⛔ Unauthorized command from user ${userIdNum}`);
         try {
-          await client.sendMessage(senderId, {
-            message: `🤖 Available Commands - tap one:`,
-            buttons: [
-              [
-                new Api.KeyboardButtonCallback({ text: "/send", data: Buffer.from("/send") }),
-                new Api.KeyboardButtonCallback({ text: "/sendmulti", data: Buffer.from("/sendmulti") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "/autosend", data: Buffer.from("/autosend") }),
-                new Api.KeyboardButtonCallback({ text: "/has", data: Buffer.from("/has") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "/help", data: Buffer.from("/help") }),
-                new Api.KeyboardButtonCallback({ text: "/stats", data: Buffer.from("/stats") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "/stoptimers", data: Buffer.from("/stoptimers") })
+          await msg.respond({
+            message: `🤖 Available Commands:`,
+            replyMarkup: new Api.ReplyInlineMarkup({
+              rows: [
+                [
+                  new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" }),
+                  new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" }),
+                  new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
+                  new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "/stoptimers", switchInlineQuery: "/stoptimers" })
+                ]
               ]
-            ]
+            })
           });
         } catch (e) {
-          console.log("Could not send inline buttons, trying text fallback");
+          console.log("Could not send inline buttons:", e.message);
           try {
-            await msg.respond({ message: `🤖 **Available Commands:**\n\n/send - Send to one group\n/sendmulti - Send to multiple\n/autosend - Auto-send\n/has - List groups\n/help - Show help\n/stats - Account info\n/stoptimers - Stop timers` });
+            await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
           } catch (err) {}
         }
         return;
@@ -405,31 +407,33 @@ async function setupMessageHandler() {
       // /help
       else if (command === "help") {
         try {
-          await client.sendMessage(senderId, {
-            message: `🤖 **Bot Commands - tap button to use:**`,
-            buttons: [
-              [
-                new Api.KeyboardButtonCallback({ text: "📤 /send", data: Buffer.from("/send") }),
-                new Api.KeyboardButtonCallback({ text: "📤 /sendmulti", data: Buffer.from("/sendmulti") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "⏰ /autosend", data: Buffer.from("/autosend") }),
-                new Api.KeyboardButtonCallback({ text: "📋 /has", data: Buffer.from("/has") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "ℹ️ /help", data: Buffer.from("/help") }),
-                new Api.KeyboardButtonCallback({ text: "📊 /stats", data: Buffer.from("/stats") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "⛔ /stoptimers", data: Buffer.from("/stoptimers") })
+          await msg.respond({
+            message: `🤖 **Bot Commands - tap button:**`,
+            replyMarkup: new Api.ReplyInlineMarkup({
+              rows: [
+                [
+                  new Api.InlineKeyboardButton({ text: "📤 /send", switchInlineQuery: "/send" }),
+                  new Api.InlineKeyboardButton({ text: "📤 /sendmulti", switchInlineQuery: "/sendmulti" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "⏰ /autosend", switchInlineQuery: "/autosend" }),
+                  new Api.InlineKeyboardButton({ text: "📋 /has", switchInlineQuery: "/has" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "ℹ️ /help", switchInlineQuery: "/help" }),
+                  new Api.InlineKeyboardButton({ text: "📊 /stats", switchInlineQuery: "/stats" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "⛔ /stoptimers", switchInlineQuery: "/stoptimers" })
+                ]
               ]
-            ]
+            })
           });
           console.log("✓ Help message sent");
         } catch (e) {
           console.log("✗ Help command executed - Error sending reply:", e.message);
           try {
-            await msg.respond({ message: `🤖 **Bot Commands:**\n\n/send - Send to one group\n/sendmulti - Send to multiple\n/autosend - Auto-send\n/has - List groups\n/help - Show help\n/stats - Account info\n/stoptimers - Stop timers` });
+            await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
           } catch (err) {}
         }
       }
@@ -533,22 +537,24 @@ Status: Online ✓`;
       
       else {
         try {
-          await client.sendMessage(senderId, {
+          await msg.respond({
             message: "❓ Unknown command. Choose one:",
-            buttons: [
-              [
-                new Api.KeyboardButtonCallback({ text: "/help", data: Buffer.from("/help") }),
-                new Api.KeyboardButtonCallback({ text: "/send", data: Buffer.from("/send") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "/sendmulti", data: Buffer.from("/sendmulti") }),
-                new Api.KeyboardButtonCallback({ text: "/autosend", data: Buffer.from("/autosend") })
-              ],
-              [
-                new Api.KeyboardButtonCallback({ text: "/has", data: Buffer.from("/has") }),
-                new Api.KeyboardButtonCallback({ text: "/stats", data: Buffer.from("/stats") })
+            replyMarkup: new Api.ReplyInlineMarkup({
+              rows: [
+                [
+                  new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
+                  new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" }),
+                  new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" })
+                ],
+                [
+                  new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" }),
+                  new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
+                ]
               ]
-            ]
+            })
           });
         } catch (e) {
           try {
