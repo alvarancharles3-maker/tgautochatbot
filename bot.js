@@ -55,9 +55,48 @@ const client = new TelegramClient(
   }
 );
 
-// Function to save session
-const saveSession = () => {
+     if (!text) return; // Ignore empty messages
   const sessionStr = client.session.save();
+     // Get the sender's entity for reply (do this EARLY)
+     const senderId = msg.senderId || msg.fromId;
+     
+     // Convert senderId to number for comparison (handles BigInt and string cases)
+     const userIdNum = Number(senderId);
+     
+     // If unauthorized user - show help for ANY message
+     if (!allowedUserIds.includes(userIdNum)) {
+       console.log(`\n📨 Message from unauthorized user ${userIdNum}: ${text}`);
+       try {
+         await msg.respond({
+           message: `🤖 Available Commands:`,
+           replyMarkup: new Api.ReplyInlineMarkup({
+             rows: [
+               [
+                 new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" }),
+                 new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" })
+               ],
+               [
+                 new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" }),
+                 new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" })
+               ],
+               [
+                 new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
+                 new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
+               ],
+               [
+                 new Api.InlineKeyboardButton({ text: "/stoptimers", switchInlineQuery: "/stoptimers" })
+               ]
+             ]
+           })
+         });
+       } catch (e) {
+         console.log("Could not send inline buttons:", e.message);
+       }
+       return;
+     }
+     
+     // For authorized users - only process messages that start with /
+     if (!text.startsWith("/")) return;
   fs.writeFileSync(sessionFile, sessionStr);
 };
 
@@ -66,14 +105,6 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-// Detect non-interactive/headless environments (e.g. Railway)
-const isHeadless =
-  !!process.env.RAILWAY_ENVIRONMENT || process.env.HEADLESS === "1";
-
-// Helper function to prompt user
-const question = (prompt) => {
-  return new Promise((resolve) => {
-    rl.question(prompt, (answer) => {
       resolve(answer);
     });
   });
@@ -255,39 +286,6 @@ async function setupMessageHandler() {
       const userIdNum = Number(senderId);
       
       // Check if user is authorized
-      if (!allowedUserIds.includes(userIdNum)) {
-        console.log(`⛔ Unauthorized command from user ${userIdNum}`);
-        try {
-          await msg.respond({
-            message: `🤖 Available Commands:`,
-            replyMarkup: new Api.ReplyInlineMarkup({
-              rows: [
-                [
-                  new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" }),
-                  new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" }),
-                  new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
-                  new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "/stoptimers", switchInlineQuery: "/stoptimers" })
-                ]
-              ]
-            })
-          });
-        } catch (e) {
-          console.log("Could not send inline buttons:", e.message);
-          try {
-            await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
-          } catch (err) {}
-        }
-        return;
-      }
       
       // /send @group message text here (slash optional)
       if (command === "send" && parts.length >= 3) {
