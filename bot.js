@@ -54,203 +54,339 @@ const client = new TelegramClient(
     connectionRetries: 5,
   }
 );
-  // Function to save session
-  const saveSession = () => {
-    const sessionStr = client.session.save();
-    fs.writeFileSync(sessionFile, sessionStr);
-  };
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+// Function to save session
+const saveSession = () => {
+  const sessionStr = client.session.save();
+  fs.writeFileSync(sessionFile, sessionStr);
+};
 
-  // Helper function to prompt user
-  const question = (prompt) => {
-    return new Promise((resolve) => {
-      rl.question(prompt, (answer) => {
-        resolve(answer);
-      });
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+// Helper function to prompt user
+const question = (prompt) => {
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      resolve(answer);
     });
-  };
+  });
+};
 
+// Helper function to sleep
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Store active auto-send timers
+const activeTimers = [];
+
+// Allowed user IDs for bot commands
+const allowedUserIds = [7968867231, 1016048363];
+
+// Detect non-interactive/headless environments (e.g. Railway)
+const isHeadless = !!process.env.RAILWAY_ENVIRONMENT || process.env.HEADLESS === "1";
+
+async function startBot() {
+  console.log("\n⏳ Connecting to Telegram...");
+
+  // In headless environments (Railway), do not attempt interactive login
+  if (isHeadless) {
+    if (!sessionString) {
+      console.error("❌ SESSION_STRING is missing in environment. Cannot run headless.");
+      process.exit(1);
+    }
+    try {
+      await client.connect();
+      const me = await client.getMe();
+      console.log("✓ Connected to Telegram (headless)!");
+      console.log(`✓ Account: ${me.firstName}`);
+      return;
+    } catch (error) {
+      console.error("✗ Headless connection error:", error.message);
+      process.exit(1);
+    }
+  }
+
+  try {
+    await client.connect();
+    
+    try {
+      const me = await client.getMe();
+      console.log("✓ Connected to Telegram!");
+      console.log(`✓ Account: ${me.firstName}`);
+      saveSession();
+      return;
+    } catch (authError) {
+      // Need to authenticate
+      console.log("📱 Authentication required...");
+    }
+  } catch (error) {
+    console.log("📱 Starting authentication...");
+  }
+
+  // Authenticate
+  try {
+    console.log(`📲 Phone number: ${phoneNumber}`);
+    
+    // Send auth code request
+    const result = await client.invoke(
+      new Api.auth.SendCode({
+        phoneNumber: phoneNumber,
+        apiId: apiId,
+        apiHash: apiHash,
+        settings: new Api.CodeSettings(),
+      })
+    );
+
+    console.log(`✓ Code sent! Phone code hash: ${result.phoneCodeHash}`);
+    const code = await question("\n📲 Enter verification code: ");
+
+    // Sign in
+    const signIn = await client.invoke(
+      new Api.auth.SignIn({
+        phoneNumber: phoneNumber,
+        phoneCodeHash: result.phoneCodeHash,
+        phoneCode: code,
+      })
+    );
+
+    console.log("✓ Successfully signed in!");
+    saveSession();
+  } catch (error) {
+    console.error("✗ Auth error:", error.message);
+    throw error;
+  }
+}
+
+async function sendMessageToGroup(groupName, message) {
+  try {
+    // Try to resolve entity (group/channel)
+    const entity = await client.getEntity(groupName);
+    await client.sendMessage(entity, { message });
+    console.log(`✓ Message sent to ${groupName}`);
+    return true;
+  } catch (error) {
+    console.log(`✗ Failed to send to ${groupName}: ${error.message}`);
+    return false;
+  }
+}
+
+async function autoMessageGroups() {
+  console.log("\n📝 Enter groups to message (one per line, empty line to finish):");
+  console.log("Examples: @channel_name, -1001234567890, 123456789");
+  
+  const groups = [];
+  let input = "";
+  
+  while (true) {
+    input = await question(`Group ${groups.length + 1}: `);
+    if (!input.trim()) break;
+    groups.push(input.trim());
+  }
+
+  if (groups.length === 0) {
+    console.log("✗ No groups entered");
+    return;
+  }
+
+  const message = await question("\n📨 Enter message to send: ");
+  if (!message.trim()) {
+    console.log("✗ No message entered");
+    return;
+  }
+
+  console.log(`\n🤖 Sending to ${groups.length} groups...`);
+
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+    console.log(`\n[${i + 1}/${groups.length}] Sending to: ${group}`);
+    await sendMessageToGroup(group, message);
+
+    if (i < groups.length - 1) {
+      console.log(`⏳ Waiting ${config.messageDelay / 1000} seconds before next message...`);
+      await sleep(config.messageDelay);
+    }
+  }
+
+  console.log("\n✓ All messages sent!");
+}
+
+async function sendSingleMessage(groupName, message) {
+  console.log(`\n📨 Sending message to ${groupName}...`);
+  await sendMessageToGroup(groupName, message);
+}
+
+// Command handler for Telegram messages
 async function setupMessageHandler() {
   console.log("\n🔔 Message handler activated - you can now control the bot via Telegram!");
-
+  
   client.addEventHandler(async (event) => {
     try {
       if (event.message.out) return; // Ignore our own messages
-
+      
       const msg = event.message;
       const text = msg.text || msg.message || "";
-
-      const senderRaw = msg.senderId || msg.fromId;
-      const senderId = Number(senderRaw);
-
-      // If unauthorized user - send promo and DM button for any message
-      if (!allowedUserIds.includes(senderId)) {
+      
+      // Only process messages that start with /
+      if (!text.startsWith("/")) return;
+      
+      const parts = text.split(" ");
+      const command = parts[0].toLowerCase().replace(/^\//, "");
+      if (!command) return;
+      
+      console.log(`\n📨 Command received: ${text}`);
+      
+      // Get the sender's entity for reply
+      const senderId = msg.senderId || msg.fromId;
+      const userIdNum = Number(senderId);
+      
+      // Check if user is authorized
+      if (!allowedUserIds.includes(userIdNum)) {
+        console.log(`⛔ Unauthorized command from user ${senderId}`);
         try {
-          await msg.respond({
-            message: "Hello! Want to plug a service? Available now. DM @lithuazs to avail.",
-            replyMarkup: new Api.ReplyInlineMarkup({ rows: [[ new Api.InlineKeyboardButton({ text: "DM @lithuazs", url: "https://t.me/lithuazs" }) ]] })
+          await client.sendMessage(senderId, { 
+            message: "👋 **Hello! Want to plug a service?**\n\nIt is available right now!\n\n👉 Click here to send me a direct message: https://t.me/lithuazs" 
           });
         } catch (e) {
-          try { await msg.respond({ message: "Hello! Want to plug a service? Available now. DM @lithuazs to avail." }); } catch (err) {}
+          console.log(`✗ Could not DM unauthorized user ${senderId}.`);
         }
         return;
       }
-
-      // Only process slash commands for authorized users
-      if (!text.startsWith("/")) return;
-
-      const parts = text.split(" ");
-      const command = parts[0].toLowerCase().replace(/^\/*/, "");
-
-      console.log(`\n📨 Command received: ${text}`);
-
+      
+      // /send @group message text here
       if (command === "send" && parts.length >= 3) {
         const group = parts[1];
         const customMsg = parts.slice(2).join(" ");
         await sendMessageToGroup(group, customMsg);
-        try { await msg.respond({ message: `✓ Message sent to ${group}` }); } catch (e) {}
-        return;
+        
+        try {
+          await client.sendMessage(senderId, { message: `✓ Message sent to ${group}` });
+        } catch (replyErr) {
+          console.log(`✓ Message sent to ${group} (couldn't send reply)`);
+        }
       }
-
-      if (command === "sendmulti") {
+      
+      // /sendmulti group1 group2 group3|Message here
+      else if (command === "sendmulti") {
         const fullText = msg.text || msg.message || "";
         const [cmdPart, contentPart] = fullText.split("|");
-        if (!contentPart) { try { await msg.respond({ message: "❌ Format: /sendmulti group1 group2|message" }); } catch (e) {} ; return; }
+        
+        if (!contentPart) {
+          try {
+            await client.sendMessage(senderId, { message: "❌ Format: /sendmulti group1 group2|message" });
+          } catch (e) {}
+          return;
+        }
+        
         const groups = cmdPart.replace(/^\/*\s*sendmulti\s+/, "").trim().split(/\s+/).filter(g => g);
         const message = contentPart.trim();
-        for (let i=0;i<groups.length;i++) { const g = groups[i].trim(); if (!g) continue; await sendMessageToGroup(g, message); if (i < groups.length-1) await sleep(config.messageDelay); }
-        try { await client.sendMessage(senderId, { message: `✓ Sent to ${groups.length} groups!` }); } catch (e) {}
-        return;
+        
+        console.log(`\n🤖 Sending to ${groups.length} groups...`);
+        
+        for (let i = 0; i < groups.length; i++) {
+          const group = groups[i].trim();
+          if (!group) continue;
+          
+          console.log(`[${i + 1}/${groups.length}] ${group}`);
+          await sendMessageToGroup(group, message);
+          if (i < groups.length - 1) await sleep(config.messageDelay);
+        }
+        
+        try {
+          await client.sendMessage(senderId, { message: `✓ Sent to ${groups.length} groups!` });
+        } catch (replyErr) {
+          console.log(`✓ Sent to ${groups.length} groups (couldn't send reply)`);
+        }
       }
 
-      if (command === "autosend") {
+      // /autosend group1 group2|interval|Message here (interval supports s/m/h)
+      else if (command === "autosend") {
         const fullText = msg.text || msg.message || "";
         const partsPipe = fullText.split("|");
-        if (partsPipe.length < 3) { try { await msg.respond({ message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" }); } catch (e) {} ; return; }
-        const cmdPart = partsPipe[0]; const intervalPart = partsPipe[1]; const messagePart = partsPipe.slice(2).join("|");
-        const groups = cmdPart.replace(/^\/*\s*autosend\s+/, "").trim().split(/\s+/).filter(g => g);
-        const intervalText = intervalPart.trim(); const match = intervalText.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
-        if (!match) { try { await msg.respond({ message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h (default h if unit omitted)" }); } catch (e) {} ; return; }
-        const value = parseFloat(match[1]); const unit = (match[2] || "h").toLowerCase(); let intervalMs;
-        if (unit === "s") intervalMs = value * 1000; else if (unit === "m") intervalMs = value * 60 * 1000; else intervalMs = value * 60 * 60 * 1000;
-        if (!groups.length || !value || value <= 0 || !messagePart.trim()) { try { await msg.respond({ message: "❌ Invalid format. Use: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" }); } catch (e) {} ; return; }
-        const trimmedMessage = messagePart.trim();
-        const timer = setInterval(async () => { for (let i=0;i<groups.length;i++){ const g = groups[i].trim(); if (!g) continue; await sendMessageToGroup(g, trimmedMessage); if (i < groups.length-1) await sleep(config.messageDelay); } }, intervalMs);
-        activeTimers.push(timer);
-        try { await msg.respond({ message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` }); } catch (e) {}
-        return;
-      }
-
-      if (command === "help") {
-        try {
-          await msg.respond({
-            message: `🤖 **Bot Commands - tap button:**`,
-            replyMarkup: new Api.ReplyInlineMarkup({
-              rows: [
-                [ new Api.InlineKeyboardButton({ text: "📤 /send", switchInlineQueryCurrentChat: "/send" }), new Api.InlineKeyboardButton({ text: "📤 /sendmulti", switchInlineQueryCurrentChat: "/sendmulti" }) ],
-                [ new Api.InlineKeyboardButton({ text: "⏰ /autosend", switchInlineQueryCurrentChat: "/autosend" }), new Api.InlineKeyboardButton({ text: "📋 /has", switchInlineQueryCurrentChat: "/has" }) ],
-                [ new Api.InlineKeyboardButton({ text: "ℹ️ /help", switchInlineQueryCurrentChat: "/help" }), new Api.InlineKeyboardButton({ text: "📊 /stats", switchInlineQueryCurrentChat: "/stats" }) ],
-                [ new Api.InlineKeyboardButton({ text: "⛔ /stoptimers", switchInlineQueryCurrentChat: "/stoptimers" }) ],
-                [ new Api.InlineKeyboardButton({ text: "Open chat with @lithuazs", url: "https://t.me/lithuazs" }) ]
-              ]
-            })
-          });
-        } catch (e) {
-          try { await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` }); } catch (err) {}
-        }
-        return;
-      }
-
-      if (command === "stats") {
-        try { const me = await client.getMe(); const statsText = `📊 **Account Info:**\nName: ${me.firstName} ${me.lastName || ""}\nID: ${me.id}\nStatus: Online ✓`; await msg.respond({ message: statsText }); } catch (e) { console.log("✗ Stats command executed - Error sending reply:", e.message); }
-        return;
-      }
-
-      if (command === "stoptimers") {
-        try { activeTimers.forEach(clearInterval); activeTimers.length = 0; await msg.respond({ message: "✓ All auto-send timers stopped." }); } catch (e) { console.log("✗ Error stopping timers:", e.message); }
-        return;
-      }
-
-      if (command === "has") {
-        try {
-          await msg.respond({ message: "⏳ Fetching groups..." });
-          const dialogs = await client.getDialogs({ limit: 100 }); const groups = [];
-          for (const dialog of dialogs) {
-            const entity = dialog.entity;
-            if (entity.className === "Chat" || entity.className === "Channel") {
-              const title = entity.title || entity.username || `Unknown (${entity.id})`;
-              const username = entity.username ? `@${entity.username}` : `ID: ${entity.id}`;
-              groups.push({ title, username, id: entity.id });
-            }
-          }
-          if (groups.length === 0) { try { await msg.respond({ message: "📭 No groups or channels found." }); } catch (e) {} ; return; }
-          let groupsList = `📋 **Your Groups & Channels** (${groups.length}):\n\n`; groups.forEach((g,idx)=>{ groupsList += `${idx+1}. ${g.title}\n   ${g.username}\n`; });
-          if (groupsList.length > 4096) { const chunks=[]; let current=`📋 **Your Groups & Channels** (${groups.length}):\n\n`; groups.forEach((g,idx)=>{ const line=`${idx+1}. ${g.title}\n   ${g.username}\n`; if ((current+line).length>4000){ chunks.push(current); current=line; } else { current += line; } }); if (current) chunks.push(current); for (const c of chunks) { try { await client.sendMessage(senderId, { message: c }); } catch (e) {} } } else { try { await msg.respond({ message: groupsList }); } catch (e) { await client.sendMessage(senderId, { message: groupsList }); } }
+        
+        if (partsPipe.length < 3) {
+          try {
+            await client.sendMessage(senderId, { message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
+          } catch (e) {}
           return;
-        } catch (e) { console.log("✗ Error fetching groups:", e.message); try { await msg.respond({ message: `❌ Error: ${e.message}` }); } catch (r) {} ; return; }
-      }
+        }
 
-      // Unknown command
-      try {
-        await msg.respond({ message: "❓ Unknown command. Type /help" });
-      } catch (e) {}
+        const cmdPart = partsPipe[0];
+        const intervalPart = partsPipe[1];
+        const messagePart = partsPipe.slice(2).join("|");
 
-    } catch (error) {
-      console.error(`Error handling message: ${error.message}`);
-    }
-  }, new NewMessage({}));
-}
-                        ],
-                        [
-                          // URL fallback for clients that don't support switchInlineQueryCurrentChat
-                          new Api.InlineKeyboardButton({ text: "Open chat with @lithuazs", url: "https://t.me/lithuazs" })
-                        ]
-                      ]
-                    })
-                  });
-                  console.log("✓ Help message sent");
-                } catch (e) {
-                  console.log("✗ Help command executed - Error sending reply:", e.message);
-                  try {
-                    await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
-                  } catch (err) {}
-                }
-      
-      // /help
-      else if (command === "help") {
+        const groups = cmdPart.replace(/^\/*\s*autosend\s+/, "").trim().split(/\s+/).filter(g => g);
+        const intervalText = intervalPart.trim();
+
+        const match = intervalText.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
+        if (!match) {
+          try {
+            await client.sendMessage(senderId, { message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h" });
+          } catch (e) {}
+          return;
+        }
+        
+        const value = parseFloat(match[1]);
+        const unit = (match[2] || "h").toLowerCase();
+
+        let intervalMs;
+        if (unit === "s") {
+          intervalMs = value * 1000;
+        } else if (unit === "m") {
+          intervalMs = value * 60 * 1000;
+        } else {
+          intervalMs = value * 60 * 60 * 1000;
+        }
+
+        if (!groups.length || !value || value <= 0 || !messagePart.trim()) {
+          try {
+            await client.sendMessage(senderId, { message: "❌ Invalid format. Make sure you provided groups and a message." });
+          } catch (e) {}
+          return;
+        }
+
+        const trimmedMessage = messagePart.trim();
+
+        const timer = setInterval(async () => {
+          console.log(`\n⏰ Auto-send tick: ${groups.length} groups every ${intervalText}`);
+          for (let i = 0; i < groups.length; i++) {
+            const group = groups[i].trim();
+            if (!group) continue;
+            
+            console.log(`[auto ${i + 1}/${groups.length}] ${group}`);
+            await sendMessageToGroup(group, trimmedMessage);
+            if (i < groups.length - 1) await sleep(config.messageDelay);
+          }
+        }, intervalMs);
+
+        activeTimers.push(timer);
+
         try {
-          await msg.respond({
-            message: `🤖 **Bot Commands - tap button:**`,
-            replyMarkup: new Api.ReplyInlineMarkup({
-              rows: [
-                [
-                  new Api.InlineKeyboardButton({ text: "📤 /send", switchInlineQuery: "/send" }),
-                  new Api.InlineKeyboardButton({ text: "📤 /sendmulti", switchInlineQuery: "/sendmulti" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "⏰ /autosend", switchInlineQuery: "/autosend" }),
-                  new Api.InlineKeyboardButton({ text: "📋 /has", switchInlineQuery: "/has" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "ℹ️ /help", switchInlineQuery: "/help" }),
-                  new Api.InlineKeyboardButton({ text: "📊 /stats", switchInlineQuery: "/stats" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "⛔ /stoptimers", switchInlineQuery: "/stoptimers" })
-                ]
-              ]
-            })
-          });
+          await client.sendMessage(senderId, { message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
+        } catch (e) {
+          console.log("✓ Auto-send started (couldn't send confirmation message)");
+        }
+      }
+      
+      // /help (Replaced inline buttons with clickable text commands to prevent crashing)
+      else if (command === "help") {
+        const helpText = `🤖 **Bot Commands Menu:**\n
+Click a command below to copy it to your chat bar:\n
+📤 \`/send\` - Send to one group
+📤 \`/sendmulti\` - Send to multiple groups
+⏰ \`/autosend\` - Start interval sending
+📋 \`/has\` - List all your groups
+📊 \`/stats\` - View account status
+⛔ \`/stoptimers\` - Stop all auto-sends\n
+ℹ️ Use \`|\` to separate parts for multi/autosend.
+✉️ [Contact Admin](https://t.me/lithuazs)`;
+
+        try {
+          await client.sendMessage(senderId, { message: helpText, parseMode: "markdown" });
           console.log("✓ Help message sent");
         } catch (e) {
           console.log("✗ Help command executed - Error sending reply:", e.message);
-          try {
-            await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
-          } catch (err) {}
         }
       }
       
@@ -260,9 +396,10 @@ async function setupMessageHandler() {
           const me = await client.getMe();
           const statsText = `📊 **Account Info:**
 Name: ${me.firstName} ${me.lastName || ""}
-ID: ${me.id}
+ID: \`${me.id}\`
+Active Timers: ${activeTimers.length}
 Status: Online ✓`;
-          await msg.respond({ message: statsText });
+          await client.sendMessage(senderId, { message: statsText, parseMode: "markdown" });
           console.log("✓ Stats message sent");
         } catch (e) {
           console.log("✗ Stats command executed - Error sending reply:", e.message);
@@ -274,7 +411,7 @@ Status: Online ✓`;
         try {
           activeTimers.forEach(clearInterval);
           activeTimers.length = 0;
-          await msg.respond({ message: "✓ All auto-send timers stopped." });
+          await client.sendMessage(senderId, { message: "✓ All auto-send timers stopped." });
           console.log("✓ All auto-send timers cleared");
         } catch (e) {
           console.log("✗ Error stopping timers:", e.message);
@@ -285,14 +422,13 @@ Status: Online ✓`;
       else if (command === "has") {
         try {
           console.log("\n📋 Fetching all groups and channels...");
-          await msg.respond({ message: "⏳ Fetching groups..." });
+          await client.sendMessage(senderId, { message: "⏳ Fetching groups..." });
 
           const dialogs = await client.getDialogs({ limit: 100 });
           const groups = [];
 
           for (const dialog of dialogs) {
             const entity = dialog.entity;
-            // Filter for groups and supergroups (channels)
             if (entity.className === "Chat" || entity.className === "Channel") {
               const title = entity.title || entity.username || `Unknown (${entity.id})`;
               const username = entity.username ? `@${entity.username}` : `ID: ${entity.id}`;
@@ -302,12 +438,11 @@ Status: Online ✓`;
 
           if (groups.length === 0) {
             try {
-              await msg.respond({ message: "📭 No groups or channels found." });
+              await client.sendMessage(senderId, { message: "📭 No groups or channels found." });
             } catch (e) {}
             return;
           }
 
-          // Format groups list
           let groupsList = `📋 **Your Groups & Channels** (${groups.length}):\n\n`;
           groups.forEach((group, idx) => {
             groupsList += `${idx + 1}. ${group.title}\n   ${group.username}\n`;
@@ -336,47 +471,25 @@ Status: Online ✓`;
             }
           } else {
             try {
-              await msg.respond({ message: groupsList });
-            } catch (e) {
               await client.sendMessage(senderId, { message: groupsList });
+            } catch (e) {
+              console.log("✗ Error sending group list");
             }
           }
-
           console.log(`✓ Found ${groups.length} groups/channels`);
         } catch (e) {
           console.log("✗ Error fetching groups:", e.message);
           try {
-            await msg.respond({ message: `❌ Error: ${e.message}` });
+            await client.sendMessage(senderId, { message: `❌ Error: ${e.message}` });
           } catch (replyErr) {}
         }
       }
       
+      // Unknown command
       else {
         try {
-          await msg.respond({
-            message: "❓ Unknown command. Choose one:",
-            replyMarkup: new Api.ReplyInlineMarkup({
-              rows: [
-                [
-                  new Api.InlineKeyboardButton({ text: "/help", switchInlineQuery: "/help" }),
-                  new Api.InlineKeyboardButton({ text: "/send", switchInlineQuery: "/send" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "/sendmulti", switchInlineQuery: "/sendmulti" }),
-                  new Api.InlineKeyboardButton({ text: "/autosend", switchInlineQuery: "/autosend" })
-                ],
-                [
-                  new Api.InlineKeyboardButton({ text: "/has", switchInlineQuery: "/has" }),
-                  new Api.InlineKeyboardButton({ text: "/stats", switchInlineQuery: "/stats" })
-                ]
-              ]
-            })
-          });
-        } catch (e) {
-          try {
-            await msg.respond({ message: "❓ Unknown command. Type /help" });
-          } catch (err) {}
-        }
+          await client.sendMessage(senderId, { message: "❓ Unknown command. Type /help to see the menu." });
+        } catch (e) {}
       }
       
     } catch (error) {
@@ -406,7 +519,6 @@ async function main() {
     console.log("  - Type /help in Telegram to see commands");
     console.log("  - Or use the terminal menu below (local mode)\n");
 
-    // In headless environments (like Railway), skip interactive menu
     if (!isHeadless) {
       let running = true;
       while (running) {
