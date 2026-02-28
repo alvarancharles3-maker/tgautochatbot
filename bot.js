@@ -261,9 +261,13 @@ async function setupMessageHandler() {
         await sendMessageToGroup(group, customMsg);
         
         try {
-          await client.sendMessage(senderId, { message: `✓ Message sent to ${group}` });
+          await msg.respond({ message: `✓ Message sent to ${group}` });
         } catch (replyErr) {
-          console.log(`✓ Message sent to ${group} (couldn't send reply)`);
+          try {
+            await client.sendMessage(senderId, { message: `✓ Message sent to ${group}` });
+          } catch (e2) {
+            console.log(`✓ Message sent to ${group} (couldn't send reply)`);
+          }
         }
       }
       
@@ -274,8 +278,12 @@ async function setupMessageHandler() {
         
         if (!contentPart) {
           try {
-            await client.sendMessage(senderId, { message: "❌ Format: /sendmulti group1 group2|message" });
-          } catch (e) {}
+            await msg.respond({ message: "❌ Format: /sendmulti group1 group2|message" });
+          } catch (e) {
+            try {
+              await client.sendMessage(senderId, { message: "❌ Format: /sendmulti group1 group2|message" });
+            } catch (e2) {}
+          }
           return;
         }
         
@@ -294,9 +302,13 @@ async function setupMessageHandler() {
         }
         
         try {
-          await client.sendMessage(senderId, { message: `✓ Sent to ${groups.length} groups!` });
+          await msg.respond({ message: `✓ Sent to ${groups.length} groups!` });
         } catch (replyErr) {
-          console.log(`✓ Sent to ${groups.length} groups (couldn't send reply)`);
+          try {
+            await client.sendMessage(senderId, { message: `✓ Sent to ${groups.length} groups!` });
+          } catch (e2) {
+            console.log(`✓ Sent to ${groups.length} groups (couldn't send reply)`);
+          }
         }
       }
 
@@ -307,8 +319,12 @@ async function setupMessageHandler() {
         
         if (partsPipe.length < 3) {
           try {
-            await client.sendMessage(senderId, { message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
-          } catch (e) {}
+            await msg.respond({ message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
+          } catch (e) {
+            try {
+              await client.sendMessage(senderId, { message: "❌ Format: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
+            } catch (e2) {}
+          }
           return;
         }
 
@@ -322,8 +338,12 @@ async function setupMessageHandler() {
         const match = intervalText.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
         if (!match) {
           try {
-            await client.sendMessage(senderId, { message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h" });
-          } catch (e) {}
+            await msg.respond({ message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h" });
+          } catch (e) {
+            try {
+              await client.sendMessage(senderId, { message: "❌ Invalid interval. Use number + unit: 30s, 5m, 4h" });
+            } catch (e2) {}
+          }
           return;
         }
         
@@ -341,8 +361,12 @@ async function setupMessageHandler() {
 
         if (!groups.length || !value || value <= 0 || !messagePart.trim()) {
           try {
-            await client.sendMessage(senderId, { message: "❌ Invalid format. Make sure you provided groups and a message." });
-          } catch (e) {}
+            await msg.respond({ message: "❌ Invalid format. Make sure you provided groups and a message." });
+          } catch (e) {
+            try {
+              await client.sendMessage(senderId, { message: "❌ Invalid format. Make sure you provided groups and a message." });
+            } catch (e2) {}
+          }
           return;
         }
 
@@ -363,9 +387,13 @@ async function setupMessageHandler() {
         activeTimers.push(timer);
 
         try {
-          await client.sendMessage(senderId, { message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
+          await msg.respond({ message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
         } catch (e) {
-          console.log("✓ Auto-send started (couldn't send confirmation message)");
+          try {
+            await client.sendMessage(senderId, { message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
+          } catch (e2) {
+            console.log("✓ Auto-send started (couldn't send confirmation message)");
+          }
         }
       }
       
@@ -383,10 +411,15 @@ Click a command below to copy it to your chat bar:\n
 ✉️ [Contact Admin](https://t.me/lithuazs)`;
 
         try {
-          await client.sendMessage(senderId, { message: helpText, parseMode: "markdown" });
+          await msg.respond({ message: helpText, parseMode: "markdown" });
           console.log("✓ Help message sent");
         } catch (e) {
-          console.log("✗ Help command executed - Error sending reply:", e.message);
+          try {
+            await client.sendMessage(senderId, { message: helpText, parseMode: "markdown" });
+            console.log("✓ Help message sent (via DM)");
+          } catch (e2) {
+            console.log("✗ Help command executed - Error sending reply:", e2.message);
+          }
         }
       }
       
@@ -399,7 +432,11 @@ Name: ${me.firstName} ${me.lastName || ""}
 ID: \`${me.id}\`
 Active Timers: ${activeTimers.length}
 Status: Online ✓`;
-          await client.sendMessage(senderId, { message: statsText, parseMode: "markdown" });
+          try {
+            await msg.respond({ message: statsText, parseMode: "markdown" });
+          } catch (e) {
+            await client.sendMessage(senderId, { message: statsText, parseMode: "markdown" });
+          }
           console.log("✓ Stats message sent");
         } catch (e) {
           console.log("✗ Stats command executed - Error sending reply:", e.message);
@@ -411,7 +448,11 @@ Status: Online ✓`;
         try {
           activeTimers.forEach(clearInterval);
           activeTimers.length = 0;
-          await client.sendMessage(senderId, { message: "✓ All auto-send timers stopped." });
+          try {
+            await msg.respond({ message: "✓ All auto-send timers stopped." });
+          } catch (e) {
+            await client.sendMessage(senderId, { message: "✓ All auto-send timers stopped." });
+          }
           console.log("✓ All auto-send timers cleared");
         } catch (e) {
           console.log("✗ Error stopping timers:", e.message);
@@ -422,7 +463,11 @@ Status: Online ✓`;
       else if (command === "has") {
         try {
           console.log("\n📋 Fetching all groups and channels...");
-          await client.sendMessage(senderId, { message: "⏳ Fetching groups..." });
+          try {
+            await msg.respond({ message: "⏳ Fetching groups..." });
+          } catch (e) {
+            await client.sendMessage(senderId, { message: "⏳ Fetching groups..." });
+          }
 
           const dialogs = await client.getDialogs({ limit: 100 });
           const groups = [];
@@ -438,8 +483,12 @@ Status: Online ✓`;
 
           if (groups.length === 0) {
             try {
-              await client.sendMessage(senderId, { message: "📭 No groups or channels found." });
-            } catch (e) {}
+              await msg.respond({ message: "📭 No groups or channels found." });
+            } catch (e) {
+              try {
+                await client.sendMessage(senderId, { message: "📭 No groups or channels found." });
+              } catch (e2) {}
+            }
             return;
           }
 
@@ -466,30 +515,46 @@ Status: Online ✓`;
 
             for (const chunk of chunks) {
               try {
-                await client.sendMessage(senderId, { message: chunk });
-              } catch (e) {}
+                await msg.respond({ message: chunk });
+              } catch (e) {
+                try {
+                  await client.sendMessage(senderId, { message: chunk });
+                } catch (e2) {}
+              }
             }
           } else {
             try {
-              await client.sendMessage(senderId, { message: groupsList });
+              await msg.respond({ message: groupsList });
             } catch (e) {
-              console.log("✗ Error sending group list");
+              try {
+                await client.sendMessage(senderId, { message: groupsList });
+              } catch (e2) {
+                console.log("✗ Error sending group list");
+              }
             }
           }
           console.log(`✓ Found ${groups.length} groups/channels`);
         } catch (e) {
           console.log("✗ Error fetching groups:", e.message);
           try {
-            await client.sendMessage(senderId, { message: `❌ Error: ${e.message}` });
-          } catch (replyErr) {}
+            await msg.respond({ message: `❌ Error: ${e.message}` });
+          } catch (replyErr) {
+            try {
+              await client.sendMessage(senderId, { message: `❌ Error: ${e.message}` });
+            } catch (e2) {}
+          }
         }
       }
       
       // Unknown command
       else {
         try {
-          await client.sendMessage(senderId, { message: "❓ Unknown command. Type /help to see the menu." });
-        } catch (e) {}
+          await msg.respond({ message: "❓ Unknown command. Type /help to see the menu." });
+        } catch (e) {
+          try {
+            await client.sendMessage(senderId, { message: "❓ Unknown command. Type /help to see the menu." });
+          } catch (e2) {}
+        }
       }
       
     } catch (error) {
