@@ -83,6 +83,9 @@ const activeTimers = [];
 // Allowed user IDs for bot commands
 const allowedUserIds = [7968867231, 1016048363];
 
+  // Detect non-interactive/headless environments (e.g. Railway)
+  const isHeadless = !!process.env.RAILWAY_ENVIRONMENT || process.env.HEADLESS === "1";
+
 async function startBot() {
   console.log("\n⏳ Connecting to Telegram...");
 
@@ -287,17 +290,17 @@ async function setupMessageHandler() {
           if (!group) continue;
           
           console.log(`[${i + 1}/${groups.length}] ${group}`);
-          await sendMessageToGroup(group, message);
-          if (i < groups.length - 1) await sleep(config.messageDelay);
-        }
+              if (command === "send" && parts.length >= 3) {
+                const group = parts[1];
+                const customMsg = parts.slice(2).join(" ");
+                await sendMessageToGroup(group, customMsg);
         
-        try {
-          await client.sendMessage(senderId, { message: `✓ Sent to ${groups.length} groups!` });
-        } catch (replyErr) {
-          console.log(`✓ Sent to ${groups.length} groups (couldn't send reply)`);
-        }
-      }
-
+                try {
+                  await msg.respond({ message: `✓ Message sent to ${group}` });
+                } catch (replyErr) {
+                  console.log(`✓ Message sent to ${group} (couldn't send reply)`);
+                }
+              }
       // /autosend group1 group2|interval|Message here (interval supports s/m/h)
       else if (command === "autosend") {
         const fullText = msg.text || msg.message || "";
@@ -334,37 +337,41 @@ async function setupMessageHandler() {
           intervalMs = value * 60 * 1000;
         } else {
           intervalMs = value * 60 * 60 * 1000;
-        }
-
-        if (!groups.length || !value || value <= 0 || !messagePart.trim()) {
-          try {
-            await msg.respond({ message: "❌ Invalid format. Use: /autosend group1 group2|interval|message (interval like 30s, 5m, 4h)" });
-          } catch (e) {}
-          return;
-        }
-
-        const trimmedMessage = messagePart.trim();
-
-        const timer = setInterval(async () => {
-          console.log(`\n⏰ Auto-send tick: ${groups.length} groups every ${intervalText}`);
-          for (let i = 0; i < groups.length; i++) {
-            const group = groups[i].trim();
-            if (!group) continue;
-            
-            console.log(`[auto ${i + 1}/${groups.length}] ${group}`);
-            await sendMessageToGroup(group, trimmedMessage);
-            if (i < groups.length - 1) await sleep(config.messageDelay);
-          }
-        }, intervalMs);
-
-        activeTimers.push(timer);
-
-        try {
-          await msg.respond({ message: `✓ Auto-send started to ${groups.length} groups every ${intervalText}.` });
-        } catch (e) {
-          console.log("✓ Auto-send started (couldn't send confirmation message)");
-        }
-      }
+              else if (command === "help") {
+                try {
+                  await msg.respond({
+                    message: `🤖 **Bot Commands - tap button:**`,
+                    replyMarkup: new Api.ReplyInlineMarkup({
+                      rows: [
+                        [
+                          new Api.InlineKeyboardButton({ text: "📤 /send", switchInlineQueryCurrentChat: "/send" }),
+                          new Api.InlineKeyboardButton({ text: "📤 /sendmulti", switchInlineQueryCurrentChat: "/sendmulti" })
+                        ],
+                        [
+                          new Api.InlineKeyboardButton({ text: "⏰ /autosend", switchInlineQueryCurrentChat: "/autosend" }),
+                          new Api.InlineKeyboardButton({ text: "📋 /has", switchInlineQueryCurrentChat: "/has" })
+                        ],
+                        [
+                          new Api.InlineKeyboardButton({ text: "ℹ️ /help", switchInlineQueryCurrentChat: "/help" }),
+                          new Api.InlineKeyboardButton({ text: "📊 /stats", switchInlineQueryCurrentChat: "/stats" })
+                        ],
+                        [
+                          new Api.InlineKeyboardButton({ text: "⛔ /stoptimers", switchInlineQueryCurrentChat: "/stoptimers" })
+                        ],
+                        [
+                          // URL fallback for clients that don't support switchInlineQueryCurrentChat
+                          new Api.InlineKeyboardButton({ text: "Open chat with @lithuazs", url: "https://t.me/lithuazs" })
+                        ]
+                      ]
+                    })
+                  });
+                  console.log("✓ Help message sent");
+                } catch (e) {
+                  console.log("✗ Help command executed - Error sending reply:", e.message);
+                  try {
+                    await msg.respond({ message: `🤖 Commands: /send, /sendmulti, /autosend, /has, /help, /stats, /stoptimers` });
+                  } catch (err) {}
+                }
       
       // /help
       else if (command === "help") {
