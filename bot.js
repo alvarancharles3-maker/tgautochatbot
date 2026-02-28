@@ -238,7 +238,10 @@ async function setupMessageHandler() {
       const msg = event.message;
       const text = msg.text || msg.message || "";
       
-      // allow commands with or without leading slash
+      // Only process messages that start with /
+      if (!text.startsWith("/")) return;
+      
+      // allow commands with leading slash
       const parts = text.split(" ");
       const command = parts[0].toLowerCase().replace(/^\//, "");
       if (!command) return; // ignore empty
@@ -248,46 +251,37 @@ async function setupMessageHandler() {
       // Get the sender's entity for reply
       const senderId = msg.senderId || msg.fromId;
       
+      // Convert senderId to number for comparison (handles BigInt and string cases)
+      const userIdNum = Number(senderId);
+      
       // Check if user is authorized
-      if (!allowedUserIds.includes(senderId)) {
-        console.log(`⛔ Unauthorized command from user ${senderId}`);
-        // send a help-style message with buttons so they can see available commands
-        const helpText = `🤖 **Bot Commands (slash optional):**
-
-/send @group message
-Send message to one group
-
-/sendmulti group1 group2 group3|Your message
-Send to multiple groups
-
-/autosend group1 group2|interval|Your message
-Auto-send to multiple groups every X (supports s, m, h; e.g. 30s, 5m, 4h)
-
-/has
-List all groups and channels you're in
-
-/help
-Show this help
-
-/stats
-Show your account info
-
-/stoptimers
-Stop all auto-send timers`;
+      if (!allowedUserIds.includes(userIdNum)) {
+        console.log(`⛔ Unauthorized command from user ${userIdNum}`);
         try {
           await client.sendMessage(senderId, {
-            message: helpText,
+            message: `🤖 Available Commands - tap one:`,
             buttons: [
-              [{ text: "send" }, { text: "sendmulti" }],
-              [{ text: "autosend" }, { text: "has" }],
-              [{ text: "help" }, { text: "stats" }],
-              [{ text: "stoptimers" }]
-            ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/send", data: Buffer.from("/send") }),
+                new Api.KeyboardButtonCallback({ text: "/sendmulti", data: Buffer.from("/sendmulti") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/autosend", data: Buffer.from("/autosend") }),
+                new Api.KeyboardButtonCallback({ text: "/has", data: Buffer.from("/has") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/help", data: Buffer.from("/help") }),
+                new Api.KeyboardButtonCallback({ text: "/stats", data: Buffer.from("/stats") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/stoptimers", data: Buffer.from("/stoptimers") })
+              ]
+            ]
           });
         } catch (e) {
-          // fallback plain message
+          console.log("Could not send inline buttons, trying text fallback");
           try {
-            await msg.respond({ message: helpText });
+            await msg.respond({ message: `🤖 **Available Commands:**\n\n/send - Send to one group\n/sendmulti - Send to multiple\n/autosend - Auto-send\n/has - List groups\n/help - Show help\n/stats - Account info\n/stoptimers - Stop timers` });
           } catch (err) {}
         }
         return;
@@ -318,7 +312,8 @@ Stop all auto-send timers`;
           return;
         }
         
-        const groups = cmdPart.replace("/sendmulti", "").trim().split(" ").filter(g => g);
+        // Remove the command itself (with or without slash) to get groups
+        const groups = cmdPart.replace(/^\/*\s*sendmulti\s+/, "").trim().split(/\s+/).filter(g => g);
         const message = contentPart.trim();
         
         console.log(`\n🤖 Sending to ${groups.length} groups...`);
@@ -354,7 +349,8 @@ Stop all auto-send timers`;
         const intervalPart = partsPipe[1];
         const messagePart = partsPipe.slice(2).join("|");
 
-        const groups = cmdPart.replace("/autosend", "").trim().split(" ").filter(g => g);
+        // Remove the command itself (with or without slash) to get groups
+        const groups = cmdPart.replace(/^\/*\s*autosend\s+/, "").trim().split(/\s+/).filter(g => g);
         const intervalText = intervalPart.trim();
 
         const match = intervalText.match(/^(\d*\.?\d+)\s*([smhSMH]?)$/);
@@ -408,33 +404,33 @@ Stop all auto-send timers`;
       
       // /help
       else if (command === "help") {
-        const helpText = `🤖 **Bot Commands (slash optional):**
-
-/send @group message
-Send message to one group
-
-/sendmulti group1 group2 group3|Your message
-Send to multiple groups
-
-/autosend group1 group2|interval|Your message
-Auto-send to multiple groups every X (supports s, m, h; e.g. 30s, 5m, 4h)
-
-/has
-List all groups and channels you're in
-
-/help
-Show this help
-
-/stats
-Show your account info
-
-/stoptimers
-Stop all auto-send timers`;
         try {
-          await msg.respond({ message: helpText });
+          await client.sendMessage(senderId, {
+            message: `🤖 **Bot Commands - tap button to use:**`,
+            buttons: [
+              [
+                new Api.KeyboardButtonCallback({ text: "📤 /send", data: Buffer.from("/send") }),
+                new Api.KeyboardButtonCallback({ text: "📤 /sendmulti", data: Buffer.from("/sendmulti") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "⏰ /autosend", data: Buffer.from("/autosend") }),
+                new Api.KeyboardButtonCallback({ text: "📋 /has", data: Buffer.from("/has") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "ℹ️ /help", data: Buffer.from("/help") }),
+                new Api.KeyboardButtonCallback({ text: "📊 /stats", data: Buffer.from("/stats") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "⛔ /stoptimers", data: Buffer.from("/stoptimers") })
+              ]
+            ]
+          });
           console.log("✓ Help message sent");
         } catch (e) {
           console.log("✗ Help command executed - Error sending reply:", e.message);
+          try {
+            await msg.respond({ message: `🤖 **Bot Commands:**\n\n/send - Send to one group\n/sendmulti - Send to multiple\n/autosend - Auto-send\n/has - List groups\n/help - Show help\n/stats - Account info\n/stoptimers - Stop timers` });
+          } catch (err) {}
         }
       }
       
@@ -537,8 +533,28 @@ Status: Online ✓`;
       
       else {
         try {
-          await msg.respond({ message: "❓ Unknown command. Type /help" });
-        } catch (e) {}
+          await client.sendMessage(senderId, {
+            message: "❓ Unknown command. Choose one:",
+            buttons: [
+              [
+                new Api.KeyboardButtonCallback({ text: "/help", data: Buffer.from("/help") }),
+                new Api.KeyboardButtonCallback({ text: "/send", data: Buffer.from("/send") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/sendmulti", data: Buffer.from("/sendmulti") }),
+                new Api.KeyboardButtonCallback({ text: "/autosend", data: Buffer.from("/autosend") })
+              ],
+              [
+                new Api.KeyboardButtonCallback({ text: "/has", data: Buffer.from("/has") }),
+                new Api.KeyboardButtonCallback({ text: "/stats", data: Buffer.from("/stats") })
+              ]
+            ]
+          });
+        } catch (e) {
+          try {
+            await msg.respond({ message: "❓ Unknown command. Type /help" });
+          } catch (err) {}
+        }
       }
       
     } catch (error) {
